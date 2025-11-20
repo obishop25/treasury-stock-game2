@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Treasury Stock Accounting Game</title>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState } = React;
+
+        // Simple icon components
+        const DollarSign = () => <span style={{fontSize: '1.2em'}}>💵</span>;
+        const TrendingUp = () => <span style={{fontSize: '1em'}}>📈</span>;
+        const TrendingDown = () => <span style={{fontSize: '1em'}}>📉</span>;
+        const Award = () => <span style={{fontSize: '1.2em'}}>🏆</span>;
+        const RefreshCw = () => <span style={{fontSize: '1em'}}>🔄</span>;
+
+        function TreasuryStockGame() {
+            const [gameState, setGameState] = useState({
+                cash: 100000,
+                commonStock: 50000,
+                paidInCapital: 20000,
+                retainedEarnings: 30000,
+                treasuryStock: 0,
+                treasuryShares: 0,
+                sharesOutstanding: 10000,
+                purchasePrice: 0,
+                score: 0,
+                transactions: [],
+                currentScenario: null
+            });
+
+            const [actionType, setActionType] = useState('buy');
+            const [shares, setShares] = useState(100);
+            const [pricePerShare, setPricePerShare] = useState(10);
+            const [showJournalEntry, setShowJournalEntry] = useState(false);
+            const [lastEntry, setLastEntry] = useState(null);
+
+            const resetGame = () => {
+                setGameState({
+                    cash: 100000,
+                    commonStock: 50000,
+                    paidInCapital: 20000,
+                    retainedEarnings: 30000,
+                    treasuryStock: 0,
+                    treasuryShares: 0,
+                    sharesOutstanding: 10000,
+                    purchasePrice: 0,
+                    score: 0,
+                    transactions: [],
+                    currentScenario: null
+                });
+                setShowJournalEntry(false);
+                setLastEntry(null);
+            };
+
+            const buyTreasuryStock = () => {
+                const cost = shares * pricePerShare;
+                
+                if (cost > gameState.cash) {
+                    alert("Not enough cash!");
+                    return;
+                }
+
+                const newState = {
+                    ...gameState,
+                    cash: gameState.cash - cost,
+                    treasuryStock: gameState.treasuryStock + cost,
+                    treasuryShares: gameState.treasuryShares + shares,
+                    purchasePrice: pricePerShare,
+                    score: gameState.score + 10,
+                    transactions: [...gameState.transactions, {
+                        type: 'Purchase',
+                        shares: shares,
+                        price: pricePerShare,
+                        total: cost
+                    }]
+                };
+
+                const entry = {
+                    debit: [{ account: 'Treasury Stock', amount: cost }],
+                    credit: [{ account: 'Cash', amount: cost }],
+                    description: `Purchased ${shares} shares at $${pricePerShare}/share`
+                };
+
+                setLastEntry(entry);
+                setShowJournalEntry(true);
+                setGameState(newState);
+            };
+
+            const sellTreasuryStock = () => {
+                if (gameState.treasuryShares === 0) {
+                    alert("No treasury stock to sell!");
+                    return;
+                }
+
+                if (shares > gameState.treasuryShares) {
+                    alert("You don't have that many treasury shares!");
+                    return;
+                }
+
+                const proceeds = shares * pricePerShare;
+                const costBasis = shares * gameState.purchasePrice;
+                const difference = proceeds - costBasis;
+
+                let newState = { ...gameState };
+                let entry = {
+                    debit: [],
+                    credit: [],
+                    description: ''
+                };
+
+                // Selling at cost
+                if (difference === 0) {
+                    newState = {
+                        ...gameState,
+                        cash: gameState.cash + proceeds,
+                        treasuryStock: gameState.treasuryStock - costBasis,
+                        treasuryShares: gameState.treasuryShares - shares,
+                        score: gameState.score + 20,
+                        currentScenario: 'at-cost',
+                        transactions: [...gameState.transactions, {
+                            type: 'Sale at Cost',
+                            shares: shares,
+                            price: pricePerShare,
+                            total: proceeds
+                        }]
+                    };
+
+                    entry = {
+                        debit: [{ account: 'Cash', amount: proceeds }],
+                        credit: [{ account: 'Treasury Stock', amount: costBasis }],
+                        description: `Sold ${shares} shares at cost ($${pricePerShare}/share)`,
+                        note: '✓ No gain or loss - sold at original purchase price!'
+                    };
+                }
+                // Selling above cost
+                else if (difference > 0) {
+                    newState = {
+                        ...gameState,
+                        cash: gameState.cash + proceeds,
+                        treasuryStock: gameState.treasuryStock - costBasis,
+                        paidInCapital: gameState.paidInCapital + difference,
+                        treasuryShares: gameState.treasuryShares - shares,
+                        score: gameState.score + 30,
+                        currentScenario: 'above-cost',
+                        transactions: [...gameState.transactions, {
+                            type: 'Sale Above Cost',
+                            shares: shares,
+                            price: pricePerShare,
+                            total: proceeds,
+                            gain: difference
+                        }]
+                    };
+
+                    entry = {
+                        debit: [{ account: 'Cash', amount: proceeds }],
+                        credit: [
+                            { account: 'Treasury Stock', amount: costBasis },
+                            { account: 'Paid-in Capital - Treasury Stock', amount: difference }
+                        ],
+                        description: `Sold ${shares} shares above cost ($${pricePerShare}/share vs $${gameState.purchasePrice}/share cost)`,
+                        note: `✓ Excess of $${difference.toLocaleString()} goes to Paid-in Capital, NOT income!`
+                    };
+                }
+                // Selling below cost
+                else {
+                    const loss = Math.abs(difference);
+                    let fromPaidIn = Math.min(loss, gameState.paidInCapital);
+                    let fromRetained = loss - fromPaidIn;
+
+                    newState = {
+                        ...gameState,
+                        cash: gameState.cash + proceeds,
+                        treasuryStock: gameState.treasuryStock - costBasis,
+                        paidInCapital: gameState.paidInCapital - fromPaidIn,
+                        retainedEarnings: gameState.retainedEarnings - fromRetained,
+                        treasuryShares: gameState.treasuryShares - shares,
+                        score: gameState.score + 40,
+                        currentScenario: 'below-cost',
+                        transactions: [...gameState.transactions, {
+                            type: 'Sale Below Cost',
+                            shares: shares,
+                            price: pricePerShare,
+                            total: proceeds,
+                            loss: loss
+                        }]
+                    };
+
+                    entry = {
+                        debit: [
+                            { account: 'Cash', amount: proceeds },
+                            ...(fromPaidIn > 0 ? [{ account: 'Paid-in Capital - Treasury Stock', amount: fromPaidIn }] : []),
+                            ...(fromRetained > 0 ? [{ account: 'Retained Earnings', amount: fromRetained }] : [])
+                        ],
+                        credit: [{ account: 'Treasury Stock', amount: costBasis }],
+                        description: `Sold ${shares} shares below cost ($${pricePerShare}/share vs $${gameState.purchasePrice}/share cost)`,
+                        note: `✓ Deficit of $${loss.toLocaleString()} reduces equity, NOT an expense!`
+                    };
+                }
+
+                setLastEntry(entry);
+                setShowJournalEntry(true);
+                setGameState(newState);
+            };
+
+            const executeTransaction = () => {
+                if (actionType === 'buy') {
+                    buyTreasuryStock();
+                } else {
+                    sellTreasuryStock();
+                }
+            };
+
+            const totalEquity = gameState.commonStock + gameState.paidInCapital + 
+                                gameState.retainedEarnings - gameState.treasuryStock;
+
+            return (
+                <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-8">
+                    <div className="max-w-7xl mx-auto">
+                        <div className="bg-white rounded-lg shadow-2xl p-8 mb-6">
+                            <div className="flex justify-between items-center mb-6">
+                                <div>
+                                    <h1 className="text-4xl font-bold text-indigo-900 mb-2">
+                                        Treasury Stock Accounting Game
+                                    </h1>
+                                    <p className="text-gray-600">Learn by doing! Buy and sell treasury stock and see the accounting magic happen.</p>
+                                </div>
+                                <div className="text-right">
+                                    <div className="flex items-center gap-2 text-2xl font-bold text-indigo-600 mb-2">
+                                        <Award />
+                                        Score: {gameState.score}
+                                    </div>
+                                    <button
+                                        onClick={resetGame}
+                                        className="flex items-center gap-2 px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600"
+                                    >
+                                        <RefreshCw />
+                                        Reset Game
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Balance Sheet */}
+                            <div className="grid grid-cols-2 gap-6 mb-8">
+                                <div className="bg-gradient-to-br from-green-50 to-emerald-50 p-6 rounded-lg border-2 border-green-200">
+                                    <h2 className="text-2xl font-bold text-green-800 mb-4">Assets</h2>
+                                    <div className="space-y-2 text-lg">
+                                        <div className="flex justify-between">
+                                            <span>Cash:</span>
+                                            <span className="font-semibold">${gameState.cash.toLocaleString()}</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="bg-gradient-to-br from-blue-50 to-indigo-50 p-6 rounded-lg border-2 border-blue-200">
+                                    <h2 className="text-2xl font-bold text-blue-800 mb-4">Stockholders' Equity</h2>
+                                    <div className="space-y-2 text-lg">
+                                        <div className="flex justify-between">
+                                            <span>Common Stock:</span>
+                                            <span className="font-semibold">${gameState.commonStock.toLocaleString()}</span>
+                                        </div>
+                                        <div className="flex justify-between">
+                                            <span>Paid-in Capital:</span>
+                                            <span className="font-semibold">${gameState.paidInCapital.toLocaleString()}</span>
+                                        </div>
+                                        <div className="flex justify-between">
+                                            <span>Retained Earnings:</span>
+                                            <span className="font-semibold">${gameState.retainedEarnings.toLocaleString()}</span>
+                                        </div>
+                                        <div className="flex justify-between text-red-600">
+                                            <span>Less: Treasury Stock ({gameState.treasuryShares} shares):</span>
+                                            <span className="font-semibold">(${gameState.treasuryStock.toLocaleString()})</span>
+                                        </div>
+                                        <div className="border-t-2 border-indigo-300 pt-2 mt-2">
+                                            <div className="flex justify-between font-bold text-xl">
+                                                <span>Total Equity:</span>
+                                                <span>${totalEquity.toLocaleString()}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Transaction Panel */}
+                            <div className="bg-gradient-to-r from-purple-50 to-pink-50 p-6 rounded-lg border-2 border-purple-200 mb-6">
+                                <h2 className="text-2xl font-bold text-purple-800 mb-4">Execute Transaction</h2>
+                                
+                                <div className="grid grid-cols-4 gap-4 mb-4">
+                                    <div>
+                                        <label className="block text-sm font-semibold text-gray-700 mb-2">Action</label>
+                                        <select
+                                            value={actionType}
+                                            onChange={(e) => setActionType(e.target.value)}
+                                            className="w-full p-3 border-2 border-purple-300 rounded-lg focus:border-purple-500 focus:outline-none"
+                                        >
+                                            <option value="buy">Buy Treasury Stock</option>
+                                            <option value="sell">Sell Treasury Stock</option>
+                                        </select>
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-sm font-semibold text-gray-700 mb-2">Number of Shares</label>
+                                        <input
+                                            type="number"
+                                            value={shares}
+                                            onChange={(e) => setShares(parseInt(e.target.value) || 0)}
+                                            className="w-full p-3 border-2 border-purple-300 rounded-lg focus:border-purple-500 focus:outline-none"
+                                            min="1"
+                                        />
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-sm font-semibold text-gray-700 mb-2">Price per Share</label>
+                                        <input
+                                            type="number"
+                                            value={pricePerShare}
+                                            onChange={(e) => setPricePerShare(parseFloat(e.target.value) || 0)}
+                                            className="w-full p-3 border-2 border-purple-300 rounded-lg focus:border-purple-500 focus:outline-none"
+                                            min="0.01"
+                                            step="0.01"
+                                        />
+                                    </div>
+
+                                    <div className="flex items-end">
+                                        <button
+                                            onClick={executeTransaction}
+                                            className="w-full p-3 bg-purple-600 text-white font-bold rounded-lg hover:bg-purple-700 transition-colors"
+                                        >
+                                            Execute
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {gameState.treasuryShares > 0 && actionType === 'sell' && (
+                                    <div className="bg-yellow-50 border-2 border-yellow-300 rounded-lg p-4">
+                                        <p className="text-sm font-semibold text-yellow-800">
+                                            💡 Your treasury stock cost basis: ${gameState.purchasePrice}/share
+                                            {pricePerShare > gameState.purchasePrice && (
+                                                <span className="text-green-600 ml-2">
+                                                    <TrendingUp /> Selling ABOVE cost!
+                                                </span>
+                                            )}
+                                            {pricePerShare < gameState.purchasePrice && (
+                                                <span className="text-red-600 ml-2">
+                                                    <TrendingDown /> Selling BELOW cost!
+                                                </span>
+                                            )}
+                                            {pricePerShare === gameState.purchasePrice && (
+                                                <span className="text-blue-600 ml-2">
+                                                    ✓ Selling AT cost!
+                                                </span>
+                                            )}
+                                        </p>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Journal Entry Display */}
+                            {showJournalEntry && lastEntry && (
+                                <div className="bg-gradient-to-r from-amber-50 to-orange-50 p-6 rounded-lg border-2 border-amber-300 mb-6">
+                                    <h2 className="text-2xl font-bold text-amber-800 mb-4">📖 Journal Entry</h2>
+                                    <p className="text-gray-700 mb-4 italic">{lastEntry.description}</p>
+                                    
+                                    <div className="bg-white p-4 rounded-lg shadow-inner font-mono text-sm mb-4">
+                                        <table className="w-full">
+                                            <thead>
+                                                <tr className="border-b-2 border-gray-300">
+                                                    <th className="text-left py-2">Account</th>
+                                                    <th className="text-right py-2">Debit</th>
+                                                    <th className="text-right py-2">Credit</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {lastEntry.debit.map((item, idx) => (
+                                                    <tr key={`debit-${idx}`}>
+                                                        <td className="py-1">{item.account}</td>
+                                                        <td className="text-right">${item.amount.toLocaleString()}</td>
+                                                        <td></td>
+                                                    </tr>
+                                                ))}
+                                                {lastEntry.credit.map((item, idx) => (
+                                                    <tr key={`credit-${idx}`}>
+                                                        <td className="py-1 pl-8">{item.account}</td>
+                                                        <td></td>
+                                                        <td className="text-right">${item.amount.toLocaleString()}</td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+
+                                    {lastEntry.note && (
+                                        <div className="bg-green-100 border-l-4 border-green-500 p-4 rounded">
+                                            <p className="font-semibold text-green-800">{lastEntry.note}</p>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            {/* Transaction History */}
+                            {gameState.transactions.length > 0 && (
+                                <div className="bg-gray-50 p-6 rounded-lg border-2 border-gray-200">
+                                    <h2 className="text-2xl font-bold text-gray-800 mb-4">Transaction History</h2>
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full text-sm">
+                                            <thead>
+                                                <tr className="border-b-2 border-gray-300">
+                                                    <th className="text-left py-2">Type</th>
+                                                    <th className="text-right py-2">Shares</th>
+                                                    <th className="text-right py-2">Price/Share</th>
+                                                    <th className="text-right py-2">Total</th>
+                                                    <th className="text-right py-2">Gain/Loss</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {gameState.transactions.map((trans, idx) => (
+                                                    <tr key={idx} className="border-b border-gray-200">
+                                                        <td className="py-2">{trans.type}</td>
+                                                        <td className="text-right">{trans.shares}</td>
+                                                        <td className="text-right">${trans.price}</td>
+                                                        <td className="text-right">${trans.total.toLocaleString()}</td>
+                                                        <td className="text-right">
+                                                            {trans.gain && <span className="text-green-600">+${trans.gain.toLocaleString()}</span>}
+                                                            {trans.loss && <span className="text-red-600">-${trans.loss.toLocaleString()}</span>}
+                                                            {!trans.gain && !trans.loss && <span className="text-gray-400">-</span>}
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Instructions */}
+                        <div className="bg-white rounded-lg shadow-lg p-6">
+                            <h2 className="text-2xl font-bold text-gray-800 mb-4">🎮 How to Play</h2>
+                            <div className="grid grid-cols-3 gap-4 text-sm">
+                                <div className="bg-blue-50 p-4 rounded-lg">
+                                    <h3 className="font-bold text-blue-800 mb-2">1. Buy Treasury Stock</h3>
+                                    <p>Purchase shares from the market. Cash decreases, Treasury Stock (contra-equity) increases.</p>
+                                </div>
+                                <div className="bg-green-50 p-4 rounded-lg">
+                                    <h3 className="font-bold text-green-800 mb-2">2. Sell at Different Prices</h3>
+                                    <p>Try selling at cost, above cost, and below cost to see different accounting treatments!</p>
+                                </div>
+                                <div className="bg-purple-50 p-4 rounded-lg">
+                                    <h3 className="font-bold text-purple-800 mb-2">3. Learn the Rules</h3>
+                                    <p>Remember: Companies can't report gains or losses on their own stock. Everything affects equity!</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        // Render the app
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<TreasuryStockGame />);
+    </script>
+</body>
+</html>
