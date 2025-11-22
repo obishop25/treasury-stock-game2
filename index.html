@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Treasury Stock Accounting Game</title>
+    <title>Treasury Stock Accounting Game - v2</title>
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -27,6 +27,7 @@
                 cash: 100000,
                 commonStock: 50000,
                 paidInCapital: 20000,
+                paidInCapitalTS: 0, // Separate tracking for Paid-in Capital - Treasury Stock
                 retainedEarnings: 30000,
                 treasuryStock: 0,
                 treasuryShares: 0,
@@ -34,7 +35,14 @@
                 purchasePrice: 0,
                 score: 0,
                 transactions: [],
-                currentScenario: null
+                currentScenario: null,
+                // T-Account transaction details
+                cashTransactions: [],
+                commonStockTransactions: [],
+                paidInCapitalTransactions: [],
+                retainedEarningsTransactions: [],
+                treasuryStockTransactions: [],
+                paidInCapitalTSTransactions: []
             });
 
             const [actionType, setActionType] = useState('buy');
@@ -48,6 +56,7 @@
                     cash: 100000,
                     commonStock: 50000,
                     paidInCapital: 20000,
+                    paidInCapitalTS: 0,
                     retainedEarnings: 30000,
                     treasuryStock: 0,
                     treasuryShares: 0,
@@ -55,7 +64,13 @@
                     purchasePrice: 0,
                     score: 0,
                     transactions: [],
-                    currentScenario: null
+                    currentScenario: null,
+                    cashTransactions: [],
+                    commonStockTransactions: [],
+                    paidInCapitalTransactions: [],
+                    retainedEarningsTransactions: [],
+                    treasuryStockTransactions: [],
+                    paidInCapitalTSTransactions: []
                 });
                 setShowJournalEntry(false);
                 setLastEntry(null);
@@ -81,7 +96,9 @@
                         shares: shares,
                         price: pricePerShare,
                         total: cost
-                    }]
+                    }],
+                    cashTransactions: [...gameState.cashTransactions, { type: 'credit', amount: cost, desc: 'Treasury Stock Purchase' }],
+                    treasuryStockTransactions: [...gameState.treasuryStockTransactions, { type: 'debit', amount: cost, desc: 'Purchase' }]
                 };
 
                 const entry = {
@@ -131,7 +148,9 @@
                             shares: shares,
                             price: pricePerShare,
                             total: proceeds
-                        }]
+                        }],
+                        cashTransactions: [...gameState.cashTransactions, { type: 'debit', amount: proceeds, desc: 'Sale at Cost' }],
+                        treasuryStockTransactions: [...gameState.treasuryStockTransactions, { type: 'credit', amount: costBasis, desc: 'Sale' }]
                     };
 
                     entry = {
@@ -148,6 +167,7 @@
                         cash: gameState.cash + proceeds,
                         treasuryStock: gameState.treasuryStock - costBasis,
                         paidInCapital: gameState.paidInCapital + difference,
+                        paidInCapitalTS: gameState.paidInCapitalTS + difference,
                         treasuryShares: gameState.treasuryShares - shares,
                         score: gameState.score + 30,
                         currentScenario: 'above-cost',
@@ -157,7 +177,10 @@
                             price: pricePerShare,
                             total: proceeds,
                             gain: difference
-                        }]
+                        }],
+                        cashTransactions: [...gameState.cashTransactions, { type: 'debit', amount: proceeds, desc: 'Sale Above Cost' }],
+                        treasuryStockTransactions: [...gameState.treasuryStockTransactions, { type: 'credit', amount: costBasis, desc: 'Sale' }],
+                        paidInCapitalTSTransactions: [...gameState.paidInCapitalTSTransactions, { type: 'credit', amount: difference, desc: 'Excess from Sale' }]
                     };
 
                     entry = {
@@ -173,14 +196,25 @@
                 // Selling below cost
                 else {
                     const loss = Math.abs(difference);
-                    let fromPaidIn = Math.min(loss, gameState.paidInCapital);
-                    let fromRetained = loss - fromPaidIn;
+                    // CORRECTED LOGIC: Use paidInCapitalTS (not total paidInCapital)
+                    let fromPaidInTS = Math.min(loss, gameState.paidInCapitalTS);
+                    let fromRetained = loss - fromPaidInTS;
+
+                    const newCashTransactions = [...gameState.cashTransactions, { type: 'debit', amount: proceeds, desc: 'Sale Below Cost' }];
+                    const newTreasuryStockTransactions = [...gameState.treasuryStockTransactions, { type: 'credit', amount: costBasis, desc: 'Sale' }];
+                    const newPaidInCapitalTSTransactions = fromPaidInTS > 0 
+                        ? [...gameState.paidInCapitalTSTransactions, { type: 'debit', amount: fromPaidInTS, desc: 'Deficit from Sale' }]
+                        : gameState.paidInCapitalTSTransactions;
+                    const newRetainedEarningsTransactions = fromRetained > 0
+                        ? [...gameState.retainedEarningsTransactions, { type: 'debit', amount: fromRetained, desc: 'Deficit from Sale' }]
+                        : gameState.retainedEarningsTransactions;
 
                     newState = {
                         ...gameState,
                         cash: gameState.cash + proceeds,
                         treasuryStock: gameState.treasuryStock - costBasis,
-                        paidInCapital: gameState.paidInCapital - fromPaidIn,
+                        paidInCapital: gameState.paidInCapital - fromPaidInTS,
+                        paidInCapitalTS: gameState.paidInCapitalTS - fromPaidInTS,
                         retainedEarnings: gameState.retainedEarnings - fromRetained,
                         treasuryShares: gameState.treasuryShares - shares,
                         score: gameState.score + 40,
@@ -191,18 +225,22 @@
                             price: pricePerShare,
                             total: proceeds,
                             loss: loss
-                        }]
+                        }],
+                        cashTransactions: newCashTransactions,
+                        treasuryStockTransactions: newTreasuryStockTransactions,
+                        paidInCapitalTSTransactions: newPaidInCapitalTSTransactions,
+                        retainedEarningsTransactions: newRetainedEarningsTransactions
                     };
 
                     entry = {
                         debit: [
                             { account: 'Cash', amount: proceeds },
-                            ...(fromPaidIn > 0 ? [{ account: 'Paid-in Capital - Treasury Stock', amount: fromPaidIn }] : []),
+                            ...(fromPaidInTS > 0 ? [{ account: 'Paid-in Capital - Treasury Stock', amount: fromPaidInTS }] : []),
                             ...(fromRetained > 0 ? [{ account: 'Retained Earnings', amount: fromRetained }] : [])
                         ],
                         credit: [{ account: 'Treasury Stock', amount: costBasis }],
                         description: `Sold ${shares} shares below cost ($${pricePerShare}/share vs $${gameState.purchasePrice}/share cost)`,
-                        note: `✓ Deficit of $${loss.toLocaleString()} reduces equity, NOT an expense!`
+                        note: `✓ Deficit of $${loss.toLocaleString()} reduces equity, NOT an expense!${fromPaidInTS > 0 ? ` ($${fromPaidInTS.toLocaleString()} from Paid-in Capital - TS)` : ''}${fromRetained > 0 ? ` ($${fromRetained.toLocaleString()} from Retained Earnings)` : ''}`
                     };
                 }
 
@@ -289,7 +327,7 @@
                                 </div>
                             </div>
 
-                            {/* Transaction Panel */}
+                            {/* SECTION 1: Transaction Panel - MOVED UP */}
                             <div className="bg-gradient-to-r from-purple-50 to-pink-50 p-6 rounded-lg border-2 border-purple-200 mb-6">
                                 <h2 className="text-2xl font-bold text-purple-800 mb-4">Execute Transaction</h2>
                                 
@@ -322,10 +360,9 @@
                                         <input
                                             type="number"
                                             value={pricePerShare}
-                                            onChange={(e) => setPricePerShare(parseFloat(e.target.value) || 0)}
+                                            onChange={(e) => setPricePerShare(parseInt(e.target.value) || 0)}
                                             className="w-full p-3 border-2 border-purple-300 rounded-lg focus:border-purple-500 focus:outline-none"
-                                            min="0.01"
-                                            step="0.01"
+                                            min="1"
                                         />
                                     </div>
 
@@ -363,7 +400,186 @@
                                 )}
                             </div>
 
-                            {/* Journal Entry Display */}
+                            {/* SECTION 2: T-Accounts with Transaction Detail - MOVED UP */}
+                            <div className="bg-gradient-to-r from-slate-50 to-gray-50 p-6 rounded-lg border-2 border-slate-300 mb-8">
+                                <h2 className="text-2xl font-bold text-slate-800 mb-6">T-Accounts</h2>
+                                <div className="grid grid-cols-3 gap-4">
+                                    {/* Cash T-Account */}
+                                    <div className="bg-white p-4 rounded-lg border-2 border-slate-300 shadow-sm">
+                                        <h3 className="text-center font-bold text-slate-700 mb-3 pb-2 border-b-2 border-slate-400">Cash</h3>
+                                        <div className="grid grid-cols-2 gap-2 text-xs">
+                                            <div className="border-r-2 border-slate-300 pr-2">
+                                                <div className="font-semibold text-gray-600 mb-1">Debit</div>
+                                                <div className="mb-2 text-blue-600 font-semibold">Beg: $100,000</div>
+                                                {gameState.cashTransactions.filter(t => t.type === 'debit').map((trans, idx) => (
+                                                    <div key={idx} className="mb-1">
+                                                        {trans.desc}: ${trans.amount.toLocaleString()}
+                                                    </div>
+                                                ))}
+                                                <div className="border-t border-slate-300 mt-2 pt-1 font-bold text-green-700">
+                                                    End: ${gameState.cash.toLocaleString()}
+                                                </div>
+                                            </div>
+                                            <div className="pl-2">
+                                                <div className="font-semibold text-gray-600 mb-1">Credit</div>
+                                                <div className="mb-2">&nbsp;</div>
+                                                {gameState.cashTransactions.filter(t => t.type === 'credit').map((trans, idx) => (
+                                                    <div key={idx} className="mb-1">
+                                                        {trans.desc}: ${trans.amount.toLocaleString()}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Common Stock T-Account */}
+                                    <div className="bg-white p-4 rounded-lg border-2 border-slate-300 shadow-sm">
+                                        <h3 className="text-center font-bold text-slate-700 mb-3 pb-2 border-b-2 border-slate-400">Common Stock</h3>
+                                        <div className="grid grid-cols-2 gap-2 text-xs">
+                                            <div className="border-r-2 border-slate-300 pr-2">
+                                                <div className="font-semibold text-gray-600 mb-1">Debit</div>
+                                                <div className="mb-2">&nbsp;</div>
+                                                {gameState.commonStockTransactions.filter(t => t.type === 'debit').map((trans, idx) => (
+                                                    <div key={idx} className="mb-1">
+                                                        {trans.desc}: ${trans.amount.toLocaleString()}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                            <div className="pl-2">
+                                                <div className="font-semibold text-gray-600 mb-1">Credit</div>
+                                                <div className="mb-2 text-blue-600 font-semibold">Beg: $50,000</div>
+                                                {gameState.commonStockTransactions.filter(t => t.type === 'credit').map((trans, idx) => (
+                                                    <div key={idx} className="mb-1">
+                                                        {trans.desc}: ${trans.amount.toLocaleString()}
+                                                    </div>
+                                                ))}
+                                                <div className="border-t border-slate-300 mt-2 pt-1 font-bold text-green-700">
+                                                    End: ${gameState.commonStock.toLocaleString()}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Paid-in Capital T-Account */}
+                                    <div className="bg-white p-4 rounded-lg border-2 border-slate-300 shadow-sm">
+                                        <h3 className="text-center font-bold text-slate-700 mb-3 pb-2 border-b-2 border-slate-400">Paid-in Capital</h3>
+                                        <div className="grid grid-cols-2 gap-2 text-xs">
+                                            <div className="border-r-2 border-slate-300 pr-2">
+                                                <div className="font-semibold text-gray-600 mb-1">Debit</div>
+                                                <div className="mb-2">&nbsp;</div>
+                                                {gameState.paidInCapitalTransactions.filter(t => t.type === 'debit').map((trans, idx) => (
+                                                    <div key={idx} className="mb-1">
+                                                        {trans.desc}: ${trans.amount.toLocaleString()}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                            <div className="pl-2">
+                                                <div className="font-semibold text-gray-600 mb-1">Credit</div>
+                                                <div className="mb-2 text-blue-600 font-semibold">Beg: $20,000</div>
+                                                {gameState.paidInCapitalTransactions.filter(t => t.type === 'credit').map((trans, idx) => (
+                                                    <div key={idx} className="mb-1">
+                                                        {trans.desc}: ${trans.amount.toLocaleString()}
+                                                    </div>
+                                                ))}
+                                                <div className="border-t border-slate-300 mt-2 pt-1 font-bold text-green-700">
+                                                    End: ${gameState.paidInCapital.toLocaleString()}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Retained Earnings T-Account */}
+                                    <div className="bg-white p-4 rounded-lg border-2 border-slate-300 shadow-sm">
+                                        <h3 className="text-center font-bold text-slate-700 mb-3 pb-2 border-b-2 border-slate-400">Retained Earnings</h3>
+                                        <div className="grid grid-cols-2 gap-2 text-xs">
+                                            <div className="border-r-2 border-slate-300 pr-2">
+                                                <div className="font-semibold text-gray-600 mb-1">Debit</div>
+                                                <div className="mb-2">&nbsp;</div>
+                                                {gameState.retainedEarningsTransactions.filter(t => t.type === 'debit').map((trans, idx) => (
+                                                    <div key={idx} className="mb-1">
+                                                        {trans.desc}: ${trans.amount.toLocaleString()}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                            <div className="pl-2">
+                                                <div className="font-semibold text-gray-600 mb-1">Credit</div>
+                                                <div className="mb-2 text-blue-600 font-semibold">Beg: $30,000</div>
+                                                {gameState.retainedEarningsTransactions.filter(t => t.type === 'credit').map((trans, idx) => (
+                                                    <div key={idx} className="mb-1">
+                                                        {trans.desc}: ${trans.amount.toLocaleString()}
+                                                    </div>
+                                                ))}
+                                                <div className="border-t border-slate-300 mt-2 pt-1 font-bold text-green-700">
+                                                    End: ${gameState.retainedEarnings.toLocaleString()}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Treasury Stock T-Account */}
+                                    <div className="bg-white p-4 rounded-lg border-2 border-slate-300 shadow-sm">
+                                        <h3 className="text-center font-bold text-slate-700 mb-3 pb-2 border-b-2 border-slate-400">Treasury Stock</h3>
+                                        <div className="grid grid-cols-2 gap-2 text-xs">
+                                            <div className="border-r-2 border-slate-300 pr-2">
+                                                <div className="font-semibold text-gray-600 mb-1">Debit</div>
+                                                <div className="mb-2 text-blue-600 font-semibold">Beg: $0</div>
+                                                {gameState.treasuryStockTransactions.filter(t => t.type === 'debit').map((trans, idx) => (
+                                                    <div key={idx} className="mb-1">
+                                                        {trans.desc}: ${trans.amount.toLocaleString()}
+                                                    </div>
+                                                ))}
+                                                <div className="border-t border-slate-300 mt-2 pt-1 font-bold text-red-700">
+                                                    End: ${gameState.treasuryStock.toLocaleString()}
+                                                </div>
+                                            </div>
+                                            <div className="pl-2">
+                                                <div className="font-semibold text-gray-600 mb-1">Credit</div>
+                                                <div className="mb-2">&nbsp;</div>
+                                                {gameState.treasuryStockTransactions.filter(t => t.type === 'credit').map((trans, idx) => (
+                                                    <div key={idx} className="mb-1">
+                                                        {trans.desc}: ${trans.amount.toLocaleString()}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Paid-in Capital - Treasury Stock T-Account (only show if used) */}
+                                    {gameState.paidInCapitalTS !== 0 && (
+                                        <div className="bg-white p-4 rounded-lg border-2 border-amber-300 shadow-sm">
+                                            <h3 className="text-center font-bold text-slate-700 mb-3 pb-2 border-b-2 border-amber-400 text-xs">Paid-in Capital - TS</h3>
+                                            <div className="grid grid-cols-2 gap-2 text-xs">
+                                                <div className="border-r-2 border-slate-300 pr-2">
+                                                    <div className="font-semibold text-gray-600 mb-1">Debit</div>
+                                                    <div className="mb-2 text-blue-600 font-semibold">Beg: $0</div>
+                                                    {gameState.paidInCapitalTSTransactions.filter(t => t.type === 'debit').map((trans, idx) => (
+                                                        <div key={idx} className="mb-1">
+                                                            {trans.desc}: ${trans.amount.toLocaleString()}
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                                <div className="pl-2">
+                                                    <div className="font-semibold text-gray-600 mb-1">Credit</div>
+                                                    <div className="mb-2">&nbsp;</div>
+                                                    {gameState.paidInCapitalTSTransactions.filter(t => t.type === 'credit').map((trans, idx) => (
+                                                        <div key={idx} className="mb-1">
+                                                            {trans.desc}: ${trans.amount.toLocaleString()}
+                                                        </div>
+                                                    ))}
+                                                    <div className="border-t border-slate-300 mt-2 pt-1 font-bold text-green-700">
+                                                        End: ${gameState.paidInCapitalTS.toLocaleString()}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                                <p className="text-xs text-gray-600 mt-4 italic">
+                                    💡 T-accounts show beginning balance, all transactions, and ending balance. Watch how each entry affects the accounts!
+                                </p>
+                            </div>
+
+                            {/* SECTION 3: Journal Entry Display - MOVED DOWN */}
                             {showJournalEntry && lastEntry && (
                                 <div className="bg-gradient-to-r from-amber-50 to-orange-50 p-6 rounded-lg border-2 border-amber-300 mb-6">
                                     <h2 className="text-2xl font-bold text-amber-800 mb-4">📖 Journal Entry</h2>
@@ -405,7 +621,7 @@
                                 </div>
                             )}
 
-                            {/* Transaction History */}
+                            {/* SECTION 4: Transaction History - STAYS AT BOTTOM */}
                             {gameState.transactions.length > 0 && (
                                 <div className="bg-gray-50 p-6 rounded-lg border-2 border-gray-200">
                                     <h2 className="text-2xl font-bold text-gray-800 mb-4">Transaction History</h2>
